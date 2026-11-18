@@ -1,0 +1,141 @@
+# Bamboo grove generator config (v0). Units: meters, radians only where noted (angles are in degrees).
+# Every number is either a constant or a distribution spec:
+#   {dist: constant, value} | {dist: uniform, min, max}
+#   {dist: truncnormal, mean, sd, min, max} | {dist: lognormal, mean, sd, min?, max?}
+# Lines tagged ASSUMPTION are placeholders to replace with field data from Frostproof.
+
+schema_version: 1
+
+culm:
+  # Base (breast-of-ground) outer diameter.
+  # ASSUMPTION: young D. asper, 3-4 in (7.5-10 cm) per brief section 5.
+  base_diameter_m: {dist: truncnormal, mean: 0.088, sd: 0.008, min: 0.075, max: 0.100}
+
+  # Culm length along its axis: length = a + b * base_diameter + N(0, noise_sd), clamped to [min, max].
+  # ASSUMPTION: fitted by eye so 7.5 cm -> ~7.6 m and 10 cm -> ~9.0 m (young plants 7.5-9 m per brief).
+  length_m:
+    a: 3.4
+    b: 56.0
+    noise_sd: 0.35
+    min: 6.5
+    max: 10.0
+
+  # Diameter relative to base along normalized length (h/L, d/d_base). Interpolated linearly
+  # between points; must start at (0, 1) and be non-increasing.
+  # ASSUMPTION: near-cylindrical lower third, then accelerating taper (brief: not a straight cone).
+  taper_profile:
+    - [0.00, 1.00]
+    - [0.30, 0.95]
+    - [0.55, 0.82]
+    - [0.75, 0.62]
+    - [0.90, 0.40]
+    - [1.00, 0.18]
+
+  internode:
+    # Longest internode length on this culm.
+    # ASSUMPTION: brief says 40-50 cm typical.
+    max_length_m: {dist: truncnormal, mean: 0.45, sd: 0.03, min: 0.38, max: 0.52}
+    # Internode length relative to max_length_m along normalized length (h/L, fraction).
+    # ASSUMPTION: short at base, longest around mid-culm, shorter toward tip.
+    profile:
+      - [0.00, 0.35]
+      - [0.10, 0.65]
+      - [0.40, 1.00]
+      - [0.70, 0.90]
+      - [1.00, 0.55]
+    # Per-internode multiplicative noise (1 + N(0, sd)), clamped to [0.7, 1.3].
+    relative_noise_sd: 0.06
+
+  node_ring:
+    # Radial bulge at each node, as a fraction of local radius. Only modeled inside mesh.detail_zone_m.
+    # ASSUMPTION: no measurements yet.
+    amplitude: {dist: uniform, min: 0.03, max: 0.06}
+    # Axial width of the bulge (full width, cosine window).
+    width_m: 0.02
+
+  # Lean of the culm axis from vertical, and azimuth (deg, CCW from +X in the asset frame).
+  # In clumps, azimuth is overridden by the clump arrangement (outward lean).
+  # ASSUMPTION: no lean data yet.
+  lean_deg: {dist: truncnormal, mean: 4.0, sd: 3.0, min: 0.0, max: 15.0}
+  lean_azimuth_deg: {dist: uniform, min: 0.0, max: 360.0}
+
+  # Bow: extra horizontal tip displacement (fraction of length) along the lean azimuth,
+  # growing quadratically with height (culm arcs outward).
+  # ASSUMPTION: outer culms arch outward in the Frostproof photo.
+  bow_fraction: {dist: uniform, min: 0.05, max: 0.15}
+
+  # Wall thickness, metadata only (not in geometry). Linear from base to top.
+  # ASSUMPTION: brief says 11-20 mm thinning upward; young plants at the low end.
+  wall_thickness_base_m: {dist: uniform, min: 0.011, max: 0.016}
+  wall_thickness_top_m: {dist: uniform, min: 0.004, max: 0.007}
+
+  # Candidate cut point for the robot's inspection/cut target.
+  #   mode: above_base -> cut at `value` m along the culm from its base
+  #   mode: above_node -> cut `value` m above the first node at or above `min_height_m`
+  # ASSUMPTION: harvest cut location to be confirmed with the grower.
+  cut_point:
+    mode: above_node
+    value: 0.05
+    min_height_m: 0.30
+
+mesh:
+  # Height (m, along culm) of the high-detail zone where the robot's sensors look.
+  detail_zone_m: 3.0
+  # Circumferential segments inside / above the detail zone. detail must be a multiple of upper.
+  ring_segments_detail: 16
+  ring_segments_upper: 8
+  # Axial spacing of plain rings inside / above the detail zone (node rings are added on top).
+  ring_spacing_detail_m: 0.15
+  ring_spacing_upper_m: 0.60
+  # Extend the culm this far below its base point so uneven terrain never shows a gap.
+  base_embed_m: 0.05
+  # Close the top and bottom of each tube with a triangle fan.
+  cap_ends: true
+
+clump:
+  # Number of culm slots in a clump (culms + stumps). Rounded to an integer.
+  # ASSUMPTION: estimated from a Google Maps photo of a Frostproof clump (~50-80 culms visible).
+  culm_count: {dist: truncnormal, mean: 50, sd: 8, min: 35, max: 70}
+
+  # Footprint radius of the clump base: radius = a + b * culm_count + N(0, noise_sd), clamped.
+  # ASSUMPTION: tight base seen in the Frostproof photo; fit so 35 culms -> ~0.5 m, 70 culms -> ~0.8 m.
+  footprint_radius_m:
+    a: 0.2
+    b: 0.008571
+    noise_sd: 0.04
+    min: 0.5
+    max: 0.8
+
+  # Radial placement density, pdf(r) ~ r^(1 + edge_bias). 0 = even spread over the area,
+  # > 0 pushes culms toward the rim (new D. asper shoots emerge at the periphery).
+  # ASSUMPTION: off until field data.
+  edge_bias: 0.0
+
+  # Minimum surface-to-surface gap between neighboring culms (at ground and along their length).
+  # ASSUMPTION: culms nearly touching at the base in the Frostproof photo.
+  min_gap_m: 0.01
+  # Dart-throwing attempts per culm before the footprint radius grows by radius_growth.
+  placement_attempts: 200
+  radius_growth: 1.05
+
+  lean:
+    # Lean = culm.lean_deg draw + edge_gain_deg * (r / R), azimuth = outward from center + jitter.
+    # ASSUMPTION: strong vase/fan shape in the Frostproof photo (outer culms ~20-40 deg, center near vertical).
+    edge_gain_deg: 18.0
+    azimuth_jitter_deg: {dist: uniform, min: -20.0, max: 20.0}
+    max_deg: 35.0
+    # When a culm would intersect an already placed one: redraw lean/azimuth up to
+    # redraw_attempts times, then scale lean (and bow) by straighten_factor until clear.
+    redraw_attempts: 20
+    straighten_factor: 0.8
+    # Segments per culm for the culm-culm clearance check (capsule chain along the centerline).
+    check_segments: 12
+
+  stumps:
+    # Fraction of culm slots that are harvested stumps instead of full culms.
+    # ASSUMPTION: commercial planting with regular harvest.
+    fraction: 0.15
+    # Sampled height; the stump top is placed cut_above_node_m above the highest node below it.
+    # ASSUMPTION: no data.
+    height_m: {dist: uniform, min: 0.15, max: 0.5}
+    cut_above_node_m: 0.03
